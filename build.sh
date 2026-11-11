@@ -131,12 +131,15 @@ if [[ -n "${KEEP_ZIRCON}" ]]; then
   echo "keeping zircon (out/build-zircon*)"
 else
 echo "building zircon"
-(
-  Z=scripts/build-zircon.sh; A=(USE_CLANG=true WITH_SYZKALLER=0)
-  $Z -t arm64 "${A[@]}"
-  $Z -t venus-hee "${A[@]}"
-  $Z -r -t venus-hee "${A[@]}"
-) > "${WORK}/zircon.log" 2>&1 || fail "building zircon failed; see ${WORK}/zircon.log"
+# (each step's failure returned on its own: under `|| fail`, set -e does not
+# stop a function or a group)
+build_zircon() {
+  local Z=scripts/build-zircon.sh A=(USE_CLANG=true WITH_SYZKALLER=0)
+  $Z -t arm64 "${A[@]}" || return 1
+  $Z -t venus-hee "${A[@]}" || return 1
+  $Z -r -t venus-hee "${A[@]}" || return 1
+}
+build_zircon > "${WORK}/zircon.log" 2>&1 || fail "building zircon failed; see ${WORK}/zircon.log"
 fi
 
 # The device-tree compiler: garnet builds a dtb into the image with whatever
@@ -169,19 +172,20 @@ venus_set() {  # project package-file
     if [[ -n "${CCACHE_DIR:-}" && -d "${CCACHE_DIR}" ]]; then echo 'use_ccache = true'; fi
     echo "fuchsia_packages = [ \"$2\" ]"
   } > "$d/args.gn"
-  buildtools/gn gen "$d" --check
+  buildtools/gn gen "$d" --check || return 1
   (source scripts/devshell/lib/vars.sh && zircon_project=$p variant= &&
    fx-config-write out/arm64 "" linux_6.6 2.10 nebula 0)
 }
 for p in venus-hee; do
   echo "building ${p}"
-  {
-    venus_set "${p}" "out/nebula-build/packages/${p}"
-    fx build
+  build_garnet() {
+    venus_set "$1" "out/nebula-build/packages/$1" || return 1
+    fx build || return 1
     # export-buildroot copies the kernel command lines; the full package set
     # builds them by way of build/packages/bootfs
-    fx build build/gn:cmdline build/gn:cmdline.rel
-  } > "${WORK}/${p}.log" 2>&1 || fail "building ${p} failed; see ${WORK}/${p}.log"
+    fx build build/gn:cmdline build/gn:cmdline.rel || return 1
+  }
+  build_garnet "${p}" > "${WORK}/${p}.log" 2>&1 || fail "building ${p} failed; see ${WORK}/${p}.log"
 done
 
 # The buildroot, and the product over its packages, as the nebula release
@@ -189,10 +193,10 @@ done
 # writes into the garnet checkout.
 echo "making the ${PRODUCT} images"
 BR="${B}/buildroot"; PKG="${BR}/build/nebula/buildroot_packages"
-{
+make_images() {
   # fx export-buildroot exports venus-tee too, which is not built:
   # buildroot_initialize.py's own code, for venus-hee alone
-  python3 - "${NEBULA}" "${BR}" "${P}" <<'PY'
+  python3 - "${NEBULA}" "${BR}" "${P}" <<'PY' || return 1
 import os, sys
 sys.path.insert(0, os.path.join(sys.argv[1], 'build', 'gn'))
 import buildroot_initialize as b
@@ -200,15 +204,16 @@ copy_packages = b.copy_packages
 b.copy_packages = lambda n, h, p, z: copy_packages(n, h, p, z) if z == 'venus-hee' else None
 b.buildroot_initialize(*sys.argv[1:4])
 PY
-  rm -rf "${PKG}/garnet"; mkdir -p "${PKG}"; cp -r "${P}/garnet" "${PKG}/"
+  rm -rf "${PKG}/garnet" && mkdir -p "${PKG}" && cp -r "${P}/garnet" "${PKG}/" || return 1
   for p in "${PRODUCTS[@]}"; do
-    cp -rf "${p}/buildroot_packages/." "${PKG}/"
+    cp -rf "${p}/buildroot_packages/." "${PKG}/" || return 1
   done
-  cp -f "${PRODUCT_JSON}" "${PKG}/product.json"
-  cp -f "${PKG}/bootfs.manifest.debug.venus-hee" "${BR}/out/build-zircon/build-venus-hee/bootfs.manifest"
-  cp -f "${PKG}/bootfs.manifest.release.venus-hee" "${BR}/out/build-zircon-release/build-venus-hee/bootfs.manifest"
-  (cd "${BR}" && ./build/gn/buildroot_gen_product.py --packages-home "${PKG}")
-} > "${WORK}/product.log" 2>&1 || fail "making the images failed; see ${WORK}/product.log"
+  cp -f "${PRODUCT_JSON}" "${PKG}/product.json" || return 1
+  cp -f "${PKG}/bootfs.manifest.debug.venus-hee" "${BR}/out/build-zircon/build-venus-hee/bootfs.manifest" || return 1
+  cp -f "${PKG}/bootfs.manifest.release.venus-hee" "${BR}/out/build-zircon-release/build-venus-hee/bootfs.manifest" || return 1
+  (cd "${BR}" && ./build/gn/buildroot_gen_product.py --packages-home "${PKG}") || return 1
+}
+make_images > "${WORK}/product.log" 2>&1 || fail "making the images failed; see ${WORK}/product.log"
 
 IMG="${OUT_DIR}/images"
 Z="${BR}/out/build-zircon/build-venus-hee"; ZR="${BR}/out/build-zircon-release/build-venus-hee"
