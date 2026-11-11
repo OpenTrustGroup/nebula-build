@@ -119,12 +119,11 @@ unset FUCHSIA_DIR FUCHSIA_CONFIG FUCHSIA_OUT_DIR FUCHSIA_BUILD_DIR
 export NEBULA_SRC="${NEBULA}"
 source scripts/env.sh
 
-# zircon: the projects and order of the nebula release flow (fx set-venus,
-# then fx build-zircon).
-# zircon's builds the rest takes: the kernels (each project, debug and
-# release) and the sysroot garnet compiles against
-ZIRCON_BUILDS=(build-zircon/build-arm64 build-zircon/build-venus-tee build-zircon-release/build-venus-tee
-               build-zircon/build-venus-hee build-zircon-release/build-venus-hee)
+# zircon: what the hypervisor image takes, in the nebula release flow's
+# order (fx set-venus, then fx build-zircon): arm64, and venus-hee debug and
+# release -- the kernels and the sysroot garnet compiles against. venus-tee
+# (the TEE's) is no part of gz.img and is not built.
+ZIRCON_BUILDS=(build-zircon/build-arm64 build-zircon/build-venus-hee build-zircon-release/build-venus-hee)
 if [[ -n "${KEEP_ZIRCON}" ]]; then
   for z in "${ZIRCON_BUILDS[@]}"; do
     [[ -f "out/${z}/zircon.bin" ]] || fail "--keep-zircon: out/${z}/zircon.bin is not there; build zircon first"
@@ -135,8 +134,6 @@ echo "building zircon"
 (
   Z=scripts/build-zircon.sh; A=(USE_CLANG=true WITH_SYZKALLER=0)
   $Z -t arm64 "${A[@]}"
-  $Z -t venus-tee "${A[@]}"
-  $Z -r -t venus-tee "${A[@]}"
   $Z -t venus-hee "${A[@]}"
   $Z -r -t venus-hee "${A[@]}"
 ) > "${WORK}/zircon.log" 2>&1 || fail "building zircon failed; see ${WORK}/zircon.log"
@@ -148,9 +145,7 @@ export PATH="${GZ_KIT}/nebula/host-tools:${PATH}"
 
 # The products' package set: garnet/packages with every product over it, as
 # the nebula release flow sees packages, resolved first so that only what the
-# image is made of is built. venus-tee contributes nothing to the image;
-# export-buildroot still wants its build directory, so it is built with one
-# trivial package and exports none.
+# image is made of is built.
 B="${NEBULA}/out/nebula-build"
 P="${B}/pkgroot"
 rm -rf "${B}"; mkdir -p "${P}/garnet" "${B}/packages"
@@ -158,11 +153,8 @@ cp -r garnet/packages "${P}/garnet/"
 for p in "${PRODUCTS[@]}"; do
   cp -rf "${p}/buildroot_packages/." "${P}/"
 done
-echo '{ "packages": { "simplest-garnet-app": "//garnet/examples/simplest-garnet-app" } }' \
-  > "${P}/garnet/packages/venus-tee"
 python2 "${HERE}/lib/product-packages.py" --root "${P}" --package garnet/packages/venus-hee \
   --out "${B}/packages/venus-hee"
-cp "${P}/garnet/packages/venus-tee" "${B}/packages/venus-tee"
 
 # `fx set-venus PROJECT`, with the package file in place of the project's
 # own package lists; the same args.gn and .config otherwise.
@@ -181,7 +173,7 @@ venus_set() {  # project package-file
   (source scripts/devshell/lib/vars.sh && zircon_project=$p variant= &&
    fx-config-write out/arm64 "" linux_6.6 2.10 nebula 0)
 }
-for p in venus-tee venus-hee; do
+for p in venus-hee; do
   echo "building ${p}"
   {
     venus_set "${p}" "out/nebula-build/packages/${p}"
@@ -198,7 +190,16 @@ done
 echo "making the ${PRODUCT} images"
 BR="${B}/buildroot"; PKG="${BR}/build/nebula/buildroot_packages"
 {
-  fx export-buildroot -o "${BR}" -p "${P}"
+  # fx export-buildroot exports venus-tee too, which is not built:
+  # buildroot_initialize.py's own code, for venus-hee alone
+  python3 - "${NEBULA}" "${BR}" "${P}" <<'PY'
+import os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'build', 'gn'))
+import buildroot_initialize as b
+copy_packages = b.copy_packages
+b.copy_packages = lambda n, h, p, z: copy_packages(n, h, p, z) if z == 'venus-hee' else None
+b.buildroot_initialize(*sys.argv[1:4])
+PY
   rm -rf "${PKG}/garnet"; mkdir -p "${PKG}"; cp -r "${P}/garnet" "${PKG}/"
   for p in "${PRODUCTS[@]}"; do
     cp -rf "${p}/buildroot_packages/." "${PKG}/"

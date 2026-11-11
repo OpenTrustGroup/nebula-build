@@ -62,7 +62,7 @@ for MT8668 with the TBox (3OS), `auto8668p1_64_sos` without it.
 ### Keeping zircon
 
 `--keep-zircon` uses the zircon the tree has built (`out/build-zircon*`:
-arm64, venus-tee and venus-hee, debug and release) instead of building it:
+arm64, and venus-hee debug and release) instead of building it:
 kernels built on purpose some other way (a release's, with its version strings
 and build times, to check an image byte for byte), or to save the time when
 only garnet changed. Use it only when `out/` is what the tree's `zircon/`
@@ -75,15 +75,14 @@ it pairs with. Build a tree with the products of its tag.
 
 ## What it does
 
-1. zircon: arm64, venus-tee and venus-hee, debug and release, as the nebula
-   release flow builds them.
+1. zircon: arm64, and venus-hee debug and release, as the nebula release flow
+   builds them. venus-tee, the TEE's, is no part of `gz.img`: not built.
 2. The products' package set: `garnet/packages` with every product over it,
    resolved into one package file, so that only what the image is made of is
-   built; venus-tee with one trivial package, which the buildroot export
-   needs and the image does not use.
-3. garnet for venus-tee and venus-hee (`fx build`), the buildroot
-   (`fx export-buildroot`), the products over its package lists, and the
-   product's images (`buildroot_gen_product.py`).
+   built.
+3. garnet for venus-hee (`fx build`), the buildroot (what `fx
+   export-buildroot` makes, of venus-hee alone), the products over its package
+   lists, and the product's images (`buildroot_gen_product.py`).
 4. The gz kit's `build-gz.sh --project <bsp-project> --no-ddk` on a copy of
    the kit with the images in `nebula/prebuilt-images-<IC>/`; the board the
    image claims (its PLID) is the kit's.
