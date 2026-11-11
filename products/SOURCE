@@ -1,0 +1,7 @@
+# Where products/ comes from: grpower's vendor/product/<name>/buildroot_packages
+# and the product's product.json, as GRT's release tag pairs them (grpower
+# nebula-co-branch at that tag). A release that moves grpower's product moves
+# these files and this line together.
+#
+# grpower commit	GRT tag
+cd0febf064d659b7fe47e7767f2994a9d828cf69	release-spm.mt8668_2026_1022_02

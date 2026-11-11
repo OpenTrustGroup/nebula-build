@@ -33,7 +33,7 @@ give their paths.
     --product products/default --product products/mtk8668 \
     --gz-kit <BSP>/prebuilt/hypervisor/grt_mt8668 \
     --sign-kit <BSP>/sign-image_v2 \
-    --bsp-project auto8668p1_64_sos \
+    --bsp-project auto8668p1_64_sos_sta \
     --python3 /opt/python3.12/bin/python3.12 \
     -o out/mt8668
 ```
@@ -53,8 +53,25 @@ out/mt8668/work/            logs and the kits' working copies
 A later run replaces a directory an earlier run made, and refuses any other
 non-empty one.
 
+`--bsp-project` is the BSP project the image is for: `auto8668p1_64_sos_sta`
+for MT8668 with the TBox (3OS), `auto8668p1_64_sos` without it.
+
 `--sign-platform` (default `mt6881`) and `--sign-env-cfg` (default
 `env_3072.cfg`) are passed to the signer.
+
+### Keeping zircon
+
+`--keep-zircon` uses the zircon the tree has built (`out/build-zircon*`:
+arm64, venus-tee and venus-hee, debug and release) instead of building it:
+kernels built on purpose some other way (a release's, with its version strings
+and build times, to check an image byte for byte), or to save the time when
+only garnet changed. Use it only when `out/` is what the tree's `zircon/`
+makes.
+
+## Products
+
+`products/SOURCE` says which grpower commit `products/` is, and which GRT tag
+it pairs with. Build a tree with the products of its tag.
 
 ## What it does
 
@@ -80,3 +97,4 @@ non-empty one.
 | `build.sh` | the build |
 | `lib/product-packages.py` | resolves a product's package set into one package file |
 | `products/default`, `products/mtk8668` | MT8668's product |
+| `products/SOURCE` | the grpower commit and GRT tag `products/` is |

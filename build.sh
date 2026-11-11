@@ -10,7 +10,7 @@
 #
 #   build.sh --nebula-src DIR --product DIR [--product DIR]...
 #            --gz-kit DIR --sign-kit DIR --bsp-project NAME -o OUT_DIR
-#            [--python3 PATH]
+#            [--python3 PATH] [--keep-zircon]
 #            [--sign-platform NAME] [--sign-env-cfg FILE]
 #
 # OUT_DIR gets gz.img and gz-rel.img (signed), unsigned/, images/ (what the
@@ -24,7 +24,7 @@ usage() {
   cat >&2 <<EOF
 usage: $0 --nebula-src DIR --product DIR [--product DIR]...
           --gz-kit DIR --sign-kit DIR --bsp-project NAME -o OUT_DIR
-          [--python3 PATH] [--sign-platform NAME] [--sign-env-cfg FILE]
+          [--python3 PATH] [--keep-zircon] [--sign-platform NAME] [--sign-env-cfg FILE]
 
   --nebula-src     the nebula source tree (a jiri checkout, zircon's source included)
   --product        a product directory (buildroot_packages/, product.json); more than
@@ -37,6 +37,10 @@ usage: $0 --nebula-src DIR --product DIR [--product DIR]...
                    (default: python3)
   --sign-platform  signer platform (default: mt6881)
   --sign-env-cfg   signer config inside the kit (default: env_3072.cfg)
+  --keep-zircon    use the zircon the tree has built (out/build-zircon*), not
+                   build it again: for kernels built elsewhere on purpose (a
+                   release's, with its version strings), or to save the time;
+                   only when out/ is what the tree's zircon/ makes
 EOF
   exit 1
 }
@@ -56,6 +60,7 @@ while [[ $# -ne 0 ]]; do
     --python3) PYTHON3="$2"; shift ;;
     --sign-platform) SIGN_PLATFORM="$2"; shift ;;
     --sign-env-cfg) SIGN_ENV_CFG="$2"; shift ;;
+    --keep-zircon) KEEP_ZIRCON=1; shift; continue ;;
     *) usage ;;
   esac
   [[ $# -ge 1 ]] || usage
@@ -116,6 +121,16 @@ source scripts/env.sh
 
 # zircon: the projects and order of the nebula release flow (fx set-venus,
 # then fx build-zircon).
+# zircon's builds the rest takes: the kernels (each project, debug and
+# release) and the sysroot garnet compiles against
+ZIRCON_BUILDS=(build-zircon/build-arm64 build-zircon/build-venus-tee build-zircon-release/build-venus-tee
+               build-zircon/build-venus-hee build-zircon-release/build-venus-hee)
+if [[ -n "${KEEP_ZIRCON}" ]]; then
+  for z in "${ZIRCON_BUILDS[@]}"; do
+    [[ -f "out/${z}/zircon.bin" ]] || fail "--keep-zircon: out/${z}/zircon.bin is not there; build zircon first"
+  done
+  echo "keeping zircon (out/build-zircon*)"
+else
 echo "building zircon"
 (
   Z=scripts/build-zircon.sh; A=(USE_CLANG=true WITH_SYZKALLER=0)
@@ -125,6 +140,7 @@ echo "building zircon"
   $Z -t venus-hee "${A[@]}"
   $Z -r -t venus-hee "${A[@]}"
 ) > "${WORK}/zircon.log" 2>&1 || fail "building zircon failed; see ${WORK}/zircon.log"
+fi
 
 # The device-tree compiler: garnet builds a dtb into the image with whatever
 # `dtc` is on PATH, so take the gz kit's, as the BSP's build does.
