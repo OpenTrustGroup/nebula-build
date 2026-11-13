@@ -118,6 +118,9 @@ cd "${NEBULA}"
 unset FUCHSIA_DIR FUCHSIA_CONFIG FUCHSIA_OUT_DIR FUCHSIA_BUILD_DIR
 export NEBULA_SRC="${NEBULA}"
 source scripts/env.sh
+# fx sets FUCHSIA_DIR (scripts/devshell/lib/vars.sh); zircon's make reads
+# it (libnbl_license's include path), and build-zircon.sh is run here without fx.
+export FUCHSIA_DIR="${NEBULA}"
 
 # zircon: what the hypervisor image takes, in the nebula release flow's
 # order (fx set-venus, then fx build-zircon): arm64, and venus-hee debug and
